@@ -150,27 +150,6 @@ struct PP5Context
     static QMap<QString,QVariant> toMetadata(const ppr_face_type &face)
     {
         QMap<QString,QVariant> metadata;
-
-        ppr_face_attributes_type face_attributes;
-        ppr_get_face_attributes(face, &face_attributes);
-        metadata.insert("Face", QRectF(face_attributes.position.x - face_attributes.dimensions.width/2,
-                                       face_attributes.position.y - face_attributes.dimensions.height/2,
-                                       face_attributes.dimensions.width,
-                                       face_attributes.dimensions.height));
-        metadata.insert("PP5_Face_Confidence", face_attributes.confidence);
-        metadata.insert("PP5_Face_Roll", face_attributes.rotation.roll);
-        metadata.insert("PP5_Face_Pitch", face_attributes.rotation.pitch);
-        metadata.insert("PP5_Face_Yaw", face_attributes.rotation.yaw);
-        metadata.insert("PP5_Face_HasThumbnail", face_attributes.has_thumbnail);
-        metadata.insert("PP5_Face_NumLandmarks", face_attributes.num_landmarks);
-        metadata.insert("PP5_Face_Size", face_attributes.size);
-        metadata.insert("PP5_TrackingInfo_ConfidenceLevel", face_attributes.tracking_info.confidence_level);
-        metadata.insert("PP5_TrackingInfo_FrameNumber", face_attributes.tracking_info.frame_number);
-        metadata.insert("PP5_TrackingInfo_TrackID", face_attributes.tracking_info.track_id);
-
-        ppr_landmark_list_type landmark_list;
-        TRY(ppr_get_face_landmarks(face, &landmark_list))
-
         QList<ppr_landmark_category_type> categories;
         categories << PPR_LANDMARK_CATEGORY_RIGHT_EYE
                    << PPR_LANDMARK_CATEGORY_LEFT_EYE
@@ -181,26 +160,56 @@ struct PP5Context
                    << PPR_LANDMARK_CATEGORY_LEFT_LOWER_CHEEK
                    << PPR_LANDMARK_CATEGORY_RIGHT_UPPER_CHEEK
                    << PPR_LANDMARK_CATEGORY_RIGHT_LOWER_CHEEK;
-        for (int i=0; i<categories.size(); i++) {
-            ppr_landmark_category_type category = categories[i];
-            QString metadataString = QString("PP5_Landmark%1_%2").arg(QString::number(i), toString(category));
 
-            bool found = false;
-            for (int j=0; j<landmark_list.length; j++) {
-                ppr_landmark_type &landmark = landmark_list.landmarks[j];
-                if (landmark.category != category) continue;
+        if (face != NULL) {
+            ppr_face_attributes_type face_attributes;
+            ppr_get_face_attributes(face, &face_attributes);
+            metadata.insert("Face", QRectF(face_attributes.position.x - face_attributes.dimensions.width/2,
+                                           face_attributes.position.y - face_attributes.dimensions.height/2,
+                                           face_attributes.dimensions.width,
+                                           face_attributes.dimensions.height));
+            metadata.insert("PP5_Face_Confidence", face_attributes.confidence);
+            metadata.insert("PP5_Face_Roll", face_attributes.rotation.roll);
+            metadata.insert("PP5_Face_Pitch", face_attributes.rotation.pitch);
+            metadata.insert("PP5_Face_Yaw", face_attributes.rotation.yaw);
+            metadata.insert("PP5_Face_HasThumbnail", face_attributes.has_thumbnail);
+            metadata.insert("PP5_Face_NumLandmarks", face_attributes.num_landmarks);
+            metadata.insert("PP5_Face_Size", face_attributes.size);
+            metadata.insert("PP5_TrackingInfo_ConfidenceLevel", face_attributes.tracking_info.confidence_level);
+            metadata.insert("PP5_TrackingInfo_FrameNumber", face_attributes.tracking_info.frame_number);
+            metadata.insert("PP5_TrackingInfo_TrackID", face_attributes.tracking_info.track_id);
 
-                metadata.insert(metadataString, QPointF(landmark.position.x, landmark.position.y));
-                found = true;
-                break;
+
+            ppr_landmark_list_type landmark_list;
+            TRY(ppr_get_face_landmarks(face, &landmark_list))
+
+            for (int i=0; i<categories.size(); i++) {
+                ppr_landmark_category_type category = categories[i];
+                QString metadataString = QString("PP5_Landmark%1_%2").arg(QString::number(i), toString(category));
+
+                bool found = false;
+                for (int j=0; j<landmark_list.length; j++) {
+                    ppr_landmark_type &landmark = landmark_list.landmarks[j];
+                    if (landmark.category != category) continue;
+
+                    metadata.insert(metadataString, QPointF(landmark.position.x, landmark.position.y));
+                    found = true;
+                    break;
+                }
+
+                if (!found) {
+                    metadata.insert(metadataString, QPointF(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()));
+                }
             }
 
-            if (!found) {
-                metadata.insert(metadataString, QPointF(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()));
-            }
+            ppr_free_landmark_list(landmark_list);
         }
+        else {
+            QRectF nanRect = QRectF(std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::quiet_NaN());
+            QPointF nanPoint = QPointF(std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::quiet_NaN());
+            metadata.insert("Face",nanRect);
 
-        ppr_free_landmark_list(landmark_list);
+        }
 
         return metadata;
     }
@@ -257,6 +266,7 @@ class PP5EnrollTransform : public UntrainableTransform
         contexts.release(context);
 
         if (!src.file.getBool("enrollAll") && dst.isEmpty()) {
+            dst.file.append(PP5Context::toMetadata(NULL));
             if (detectOnly) dst += src;
             else            dst += cv::Mat();
         }
