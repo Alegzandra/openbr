@@ -201,14 +201,17 @@ struct PP5Context
                     metadata.insert(metadataString, QPointF(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()));
                 }
             }
-
             ppr_free_landmark_list(landmark_list);
         }
         else {
             QRectF nanRect = QRectF(std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::quiet_NaN());
             QPointF nanPoint = QPointF(std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::quiet_NaN());
             metadata.insert("Face",nanRect);
-
+            for (int i=0; i<categories.size(); i++) {
+                ppr_landmark_category_type category = categories[i];
+                QString metadataString = QString("PP5_Landmark%1_%2").arg(QString::number(i), toString(category));
+                metadata.insert(metadataString, nanPoint);
+            }
         }
 
         return metadata;
@@ -239,11 +242,22 @@ class PP5EnrollTransform : public UntrainableTransform
         ppr_face_list_type face_list;
         TRY(ppr_detect_faces(context->context, image, &face_list))
 
+        if (face_list.length == 0) {
+            dst.file.set("FTD",true);
+            dst.file.set("FTE",true);
+            dst.file.append(PP5Context::toMetadata(NULL));
+        }
+
         for (int i=0; i<face_list.length; i++) {
             ppr_face_type face = face_list.faces[i];
             int extractable;
             TRY(ppr_is_template_extractable(context->context, face, &extractable))
-            if (!extractable && !detectOnly) continue;
+            if (!extractable && !detectOnly) {
+                dst.file.set("FTE",true);
+                dst.file.set("FTD",dst.file.getBool("FTD",false));
+                dst.file.append(PP5Context::toMetadata(NULL));
+                continue;
+            }
 
             cv::Mat m;
             if (detectOnly) {
@@ -254,6 +268,8 @@ class PP5EnrollTransform : public UntrainableTransform
             }
 
             dst.file.append(PP5Context::toMetadata(face));
+            dst.file.set("FTD",dst.file.getBool("FTD",false));
+            dst.file.set("FTE",dst.file.getBool("FTE",false));
             dst += m;
 
             if (!src.file.getBool("enrollAll")) break;
